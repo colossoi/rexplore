@@ -113,6 +113,9 @@ pub fn get_package_name(manifest_path: &Path) -> Result<String, RexploreError> {
 
 pub fn load_rustdoc_json(path: &Path) -> Result<Crate, RexploreError> {
     let json_content = std::fs::read_to_string(path).map_err(RexploreError::Io)?;
+    load_rustdoc_json_from_str(&json_content)
+}
 
-    serde_json::from_str(&json_content).map_err(RexploreError::JsonParse)
+pub fn load_rustdoc_json_from_str(json_content: impl AsRef<str>) -> Result<Crate, RexploreError> {
+    serde_json::from_str(json_content.as_ref()).map_err(RexploreError::JsonParse)
 }
