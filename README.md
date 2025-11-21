@@ -1,6 +1,6 @@
 # rexplore
 
-A command-line tool for exploring the public APIs of Rust crates and their dependencies.
+A command-line tool and MCP server for exploring the public APIs of Rust crates and their dependencies.
 
 ## Requirements
 
@@ -14,10 +14,32 @@ rustup toolchain install nightly
 
 You don't need to switch your default toolchain - `rexplore` will automatically use nightly when needed.
 
+## Project Structure
+
+This is a Cargo workspace with three crates:
+
+- **rexplore**: Command-line interface for exploring Rust APIs
+- **rexplore-core**: Library containing shared API exploration logic
+- **rexplore-mcp**: MCP (Model Context Protocol) server for AI agent integration
+
 ## Installation
 
+### CLI Tool
+
 ```bash
-cargo install --path .
+cargo install --path crates/rexplore
+```
+
+### MCP Server
+
+```bash
+cargo install --path crates/rexplore-mcp
+```
+
+Or install both at once:
+
+```bash
+cargo install --path crates/rexplore --path crates/rexplore-mcp
 ```
 
 ## Features
@@ -147,15 +169,62 @@ rexplore -p serde -r "^pub trait"
 rexplore
 ```
 
+## MCP Server
+
+The `rexplore-mcp` binary implements the Model Context Protocol, allowing AI agents to explore Rust crate APIs.
+
+### Configuration
+
+Add to your `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "rexplore-mcp": {
+      "command": "/path/to/.cargo/bin/rexplore-mcp",
+      "args": [],
+      "transport": "stdio"
+    }
+  }
+}
+```
+
+### Tool: `explore_crate`
+
+The MCP server provides a single tool for exploring crate APIs:
+
+**Parameters:**
+- `manifest_path` (optional): Path to Cargo.toml (defaults to "./Cargo.toml")
+- `package` (optional): Package name for workspaces
+- `filter` (optional): Regex pattern to filter items
+- `group_impls` (optional): Group impl blocks and condense trait impls (default: true)
+
+**Example usage from an AI agent:**
+
+```json
+{
+  "name": "explore_crate",
+  "arguments": {
+    "package": "tokio",
+    "filter": "Runtime",
+    "group_impls": true
+  }
+}
+```
+
+**Note:** The MCP server is LOCAL ONLY - it requires filesystem access and the Rust nightly compiler to generate rustdoc JSON.
+
 ## How It Works
 
-`rexplore` uses `cargo rustdoc` with the nightly toolchain to generate JSON documentation, then parses and formats it into readable Rust syntax. It automatically generates `use` statements, groups related implementations, and can filter the output to help you find exactly what you need.
+The `rexplore-core` library uses `cargo rustdoc` with the nightly toolchain to generate JSON documentation, then parses and formats it into readable Rust syntax. It automatically generates `use` statements, groups related implementations, and can filter the output to help you find exactly what you need.
+
+Both the CLI (`rexplore`) and MCP server (`rexplore-mcp`) use this shared core library to provide consistent API exploration functionality.
 
 ## Limitations
 
-- Requires nightly toolchain (for `cargo doc --output-format json`)
+- Requires nightly toolchain (for `cargo rustdoc --output-format json`)
 - Only analyzes library crates (`--lib`)
-- Does not support private items (`--document-private-items`)
+- MCP server is local-only (requires filesystem access and nightly compiler)
 
 ## License
 
