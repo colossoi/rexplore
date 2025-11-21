@@ -12,7 +12,7 @@ pub enum RexploreError {
     #[error("Failed to execute command: {0}")]
     CommandExecution(String),
 
-    #[error("cargo rustdoc command failed")]
+    #[error("cargo rustdoc command failed. Ensure Rust nightly toolchain is installed: rustup toolchain install nightly")]
     RustdocFailed,
 
     #[error("Rustdoc JSON output not found at: {0}")]
