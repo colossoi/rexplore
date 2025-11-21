@@ -464,14 +464,56 @@ pub(crate) fn public_api_in_crate(crate_: &Crate, options: Options) -> super::Pu
         options,
     };
 
+    // Prepare items for grouped rendering by hiding parent types from method paths
+    let prepared_items = prepare_items_for_grouping(&item_processor.output, crate_);
+
     PublicApi {
-        items: item_processor
-            .output
+        items: prepared_items
             .iter()
             .map(|item| PublicItem::from_intermediate_public_item(&context, item))
             .collect::<Vec<_>>(),
         missing_item_ids: item_processor.crate_.missing_item_ids(),
     }
+}
+
+/// Prepare items for grouped rendering by hiding parent type names from methods
+/// that will be grouped into impl blocks
+fn prepare_items_for_grouping<'c>(
+    items: &[IntermediatePublicItem<'c>],
+    crate_: &'c Crate,
+) -> Vec<IntermediatePublicItem<'c>> {
+    // Build a map of impl block IDs to check which items are impl blocks
+    let mut impl_block_ids = std::collections::HashSet::new();
+    for item in items {
+        if let Some(rustdoc_item) = crate_.index.get(&item.id()) {
+            if matches!(rustdoc_item.inner, ItemEnum::Impl(_)) {
+                impl_block_ids.insert(item.id());
+            }
+        }
+    }
+
+    // Process each item
+    items
+        .iter()
+        .map(|item| {
+            // Check if this item is a method/associated item of an impl block
+            if let Some(parent_id) = item.parent_id() {
+                if impl_block_ids.contains(&parent_id) {
+                    // This is a method of an impl block - hide the parent type component
+                    let path = item.path();
+                    if path.len() >= 2 {
+                        // Clone the path and mark the second-to-last component as hidden
+                        // (last is the method name, second-to-last is the type name)
+                        let mut new_path = path.to_vec();
+                        let type_idx = new_path.len() - 2;
+                        new_path[type_idx].hide = true;
+                        return item.with_modified_path(new_path);
+                    }
+                }
+            }
+            item.clone()
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -120,17 +120,13 @@ fn main() -> Result<()> {
                 let shortened = namespace_mgr.shorten_text(&item.to_string());
                 println!("{};", shortened);
             }
-            impl_grouper::ItemGroup::ImplGroup {
-                impl_item,
-                members,
-                is_std_trait,
-            } => {
-                let rendered = impl_grouper::render_impl_group(
-                    &impl_item,
-                    &members,
-                    is_std_trait,
-                    &namespace_mgr,
-                );
+            impl_grouper::ItemGroup::TraitImplGroup { members, .. } => {
+                let rendered = impl_grouper::render_trait_impl_group(&members, &namespace_mgr);
+                println!("{};", rendered);
+            }
+            impl_grouper::ItemGroup::ImplWithMethods { impl_item, methods } => {
+                let rendered =
+                    impl_grouper::render_impl_with_methods(&impl_item, &methods, &namespace_mgr);
                 println!("{};", rendered);
             }
         }

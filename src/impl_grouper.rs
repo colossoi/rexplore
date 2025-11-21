@@ -1,247 +1,233 @@
-//! Groups impl blocks for standard library traits to reduce output noise.
+//! Groups impl blocks and their methods to reduce output noise.
 //!
-//! Instead of showing separate impl blocks like:
-//!   impl Debug for Foo;
-//!   impl Display for Foo;
-//!   impl Clone for Foo;
-//!
-//! This module groups them as:
-//!   impl Debug + Display + Clone for Foo;
+//! This module provides two types of grouping:
+//! 1. Groups methods into impl blocks: impl Foo { fn bar(); fn baz(); }
+//! 2. Condenses std library trait impls: impl Debug + Display + Clone for Foo
 
 use crate::namespace_manager::NamespaceManager;
 use crate::public_item::PublicItem;
-use crate::tokens::{tokens_to_string, Token};
-use rustdoc_types::Crate;
+use rustdoc_types::{Crate, Id, ItemEnum};
 use std::collections::HashMap;
 
-/// Represents either a single item or a group of related impl blocks
+/// Represents either a single item or a group of related items
 #[derive(Debug)]
 pub enum ItemGroup {
     /// A single item that isn't part of a group
     Single(PublicItem),
-    /// A group of impl blocks for the same type
-    ImplGroup {
-        /// The first impl item (used as a template for rendering)
-        impl_item: PublicItem,
-        /// All impl items in this group (including the first)
+    /// A group of std trait impl blocks for the same type (condensed)
+    TraitImplGroup {
+        /// All impl items in this group
         members: Vec<PublicItem>,
-        /// Whether all traits in this group are from std library
-        is_std_trait: bool,
+    },
+    /// An impl block with its methods grouped together
+    ImplWithMethods {
+        /// The impl block itself
+        impl_item: PublicItem,
+        /// Methods belonging to this impl
+        methods: Vec<PublicItem>,
     },
 }
 
-/// Information extracted from an impl block
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct ImplInfo {
-    /// The trait being implemented (if any), e.g., "Debug" or "std::fmt::Display"
-    trait_name: Option<String>,
-    /// The type being implemented for, e.g., "Foo" or "Vec<T>"
-    for_type: String,
-    /// Whether this impl is for a std library trait
-    is_std_trait: bool,
-}
-
-/// Groups impl blocks that implement standard library traits for the same type
-pub fn group_impl_items(items: Vec<PublicItem>, _crate_data: &Crate) -> Vec<ItemGroup> {
-    let mut impl_groups: HashMap<String, Vec<(PublicItem, ImplInfo)>> = HashMap::new();
+/// Groups impl blocks and their methods
+pub fn group_impl_items(items: Vec<PublicItem>, crate_data: &Crate) -> Vec<ItemGroup> {
+    // First, separate items by type
+    let mut impl_blocks = Vec::new();
+    let mut trait_impls: HashMap<String, Vec<(PublicItem, Id)>> = HashMap::new();
+    let mut methods_by_parent: HashMap<Id, Vec<PublicItem>> = HashMap::new();
     let mut other_items = Vec::new();
 
-    // Separate impl blocks from other items
     for item in items {
-        if let Some(impl_info) = parse_impl_block(&item) {
-            // Only group trait impls (not inherent impls)
-            if impl_info.trait_name.is_some() {
-                impl_groups
-                    .entry(impl_info.for_type.clone())
-                    .or_insert_with(Vec::new)
-                    .push((item, impl_info));
-            } else {
-                other_items.push(ItemGroup::Single(item));
+        let item_id = item.id();
+
+        if let Some(rustdoc_item) = crate_data.index.get(&item_id) {
+            match &rustdoc_item.inner {
+                ItemEnum::Impl(impl_data) => {
+                    if let Some(trait_path) = &impl_data.trait_ {
+                        // This is a trait impl - check if it's a std trait
+                        let trait_id = trait_path.id;
+                        if is_std_trait(trait_id, crate_data) {
+                            // Only group concrete (non-generic, no where clause) impls
+                            // Blanket impls with generics should stay separate
+                            let text = item.to_string();
+
+                            // Check if this is a concrete impl (no generics, no where clause)
+                            let is_concrete = !text.contains('<') && !text.contains(" where");
+
+                            if is_concrete {
+                                // Group concrete impls by the "for Type" part
+                                let grouping_key = if let Some(for_pos) = text.find(" for ") {
+                                    let after_for = &text[for_pos + 5..];
+                                    after_for.trim_end_matches(';').trim().to_string()
+                                } else {
+                                    continue;
+                                };
+
+                                trait_impls
+                                    .entry(grouping_key)
+                                    .or_insert_with(Vec::new)
+                                    .push((item, trait_id));
+                            } else {
+                                // Don't group generic/blanket impls - output them individually
+                                other_items.push(ItemGroup::Single(item));
+                            }
+                        } else {
+                            other_items.push(ItemGroup::Single(item));
+                        }
+                    } else {
+                        // Inherent impl - collect it to group with methods later
+                        impl_blocks.push(item);
+                    }
+                }
+                ItemEnum::Function(_)
+                | ItemEnum::AssocConst { .. }
+                | ItemEnum::AssocType { .. } => {
+                    // These are methods/associated items - group by parent
+                    if let Some(parent) = item.parent_id() {
+                        methods_by_parent
+                            .entry(parent)
+                            .or_insert_with(Vec::new)
+                            .push(item);
+                    } else {
+                        other_items.push(ItemGroup::Single(item));
+                    }
+                }
+                _ => {
+                    other_items.push(ItemGroup::Single(item));
+                }
             }
         } else {
             other_items.push(ItemGroup::Single(item));
         }
     }
 
-    // Group impls by type and check if they can be condensed
     let mut result = Vec::new();
-    for (_for_type, mut impls) in impl_groups {
-        // Check if all impls are for std traits
-        let all_std_traits = impls.iter().all(|(_, info)| info.is_std_trait);
 
-        if all_std_traits && impls.len() > 1 {
+    // Group std trait impls by type
+    for (_for_type, mut impls) in trait_impls {
+        if impls.len() > 1 {
             // Sort by trait name for consistent output
-            impls.sort_by(|(_, a), (_, b)| a.trait_name.cmp(&b.trait_name));
+            impls.sort_by(|(a, _), (b, _)| a.to_string().cmp(&b.to_string()));
 
-            let members: Vec<PublicItem> = impls.iter().map(|(item, _)| item.clone()).collect();
-            let impl_item = impls[0].0.clone();
-
-            result.push(ItemGroup::ImplGroup {
-                impl_item,
-                members,
-                is_std_trait: true,
-            });
+            let members = impls.into_iter().map(|(item, _)| item).collect();
+            result.push(ItemGroup::TraitImplGroup { members });
         } else {
-            // Don't group - add each impl separately
-            for (item, _) in impls {
-                result.push(ItemGroup::Single(item));
-            }
+            result.push(ItemGroup::Single(impls.into_iter().next().unwrap().0));
         }
     }
 
-    // Add back non-impl items
+    // Group impl blocks with their methods
+    for impl_item in impl_blocks {
+        let impl_id = impl_item.id();
+        if let Some(methods) = methods_by_parent.remove(&impl_id) {
+            if !methods.is_empty() {
+                result.push(ItemGroup::ImplWithMethods { impl_item, methods });
+                continue;
+            }
+        }
+        result.push(ItemGroup::Single(impl_item));
+    }
+
+    // Add remaining items
     result.extend(other_items);
 
     result
 }
 
-/// Parse an impl block to extract trait and type information
-fn parse_impl_block(item: &PublicItem) -> Option<ImplInfo> {
-    let tokens = &item.tokens;
-    let text = tokens_to_string(tokens);
-
-    // Check if this is an impl block
-    if !text.contains("impl") {
-        return None;
-    }
-
-    // Find the "impl" keyword position
-    let mut impl_pos = None;
-    for (i, token) in tokens.iter().enumerate() {
-        if matches!(token, Token::Keyword(k) if k == "impl") {
-            impl_pos = Some(i);
-            break;
+/// Check if a trait (by its ID) is from the standard library
+fn is_std_trait(trait_id: Id, crate_data: &Crate) -> bool {
+    // Look up the trait in the crate paths
+    if let Some(item_summary) = crate_data.paths.get(&trait_id) {
+        // Check if the path starts with a std crate
+        if let Some(first_component) = item_summary.path.first() {
+            matches!(first_component.as_str(), "std" | "core" | "alloc")
+        } else {
+            false
         }
-    }
-
-    let impl_pos = impl_pos?;
-
-    // Look for "for" keyword to determine if this is a trait impl
-    let mut for_pos = None;
-    for (i, token) in tokens.iter().enumerate().skip(impl_pos) {
-        if matches!(token, Token::Keyword(k) if k == "for") {
-            for_pos = Some(i);
-            break;
-        }
-    }
-
-    if let Some(for_pos) = for_pos {
-        // This is a trait impl: "impl Trait for Type"
-        let trait_tokens = &tokens[impl_pos + 1..for_pos];
-        let trait_name = extract_trait_name(trait_tokens);
-        let is_std_trait = is_std_library_trait(&trait_name);
-
-        let for_type = extract_for_type(&tokens[for_pos + 1..]);
-
-        Some(ImplInfo {
-            trait_name: Some(trait_name),
-            for_type,
-            is_std_trait,
-        })
     } else {
-        // This is an inherent impl: "impl Type"
-        let for_type = extract_for_type(&tokens[impl_pos + 1..]);
-
-        Some(ImplInfo {
-            trait_name: None,
-            for_type,
-            is_std_trait: false,
-        })
+        false
     }
 }
 
-/// Extract the trait name from tokens between "impl" and "for"
-fn extract_trait_name(tokens: &[Token]) -> String {
-    let mut result = String::new();
-    for token in tokens {
-        match token {
-            Token::Whitespace => {}
-            Token::Keyword(k) if k == "where" => break,
-            Token::Symbol(s) if s == "<" => break, // Stop at generic params
-            _ => result.push_str(token.text()),
-        }
+/// Render a condensed group of trait impls
+pub fn render_trait_impl_group(members: &[PublicItem], namespace_mgr: &NamespaceManager) -> String {
+    if members.is_empty() {
+        return String::new();
     }
-    result.trim().to_string()
-}
 
-/// Extract the type name from tokens after "for" or after "impl" (for inherent impls)
-fn extract_for_type(tokens: &[Token]) -> String {
-    let mut result = String::new();
-    let mut depth: i32 = 0; // Track generic depth
+    // Extract trait names (just the trait, not generics/where clauses)
+    let mut traits = Vec::new();
+    let mut for_type = None;
 
-    for token in tokens {
-        match token {
-            Token::Keyword(k) if k == "where" && depth == 0 => break,
-            Token::Symbol(s) if s == "<" => {
-                result.push_str(s);
-                depth += 1;
-            }
-            Token::Symbol(s) if s == ">" => {
-                result.push_str(s);
-                depth = depth.saturating_sub(1);
-            }
-            Token::Whitespace => {
-                if depth > 0 {
-                    result.push(' ');
+    for member in members {
+        let text = member.to_string();
+        // Parse "impl Trait for Type"
+        if let Some(for_pos) = text.find(" for ") {
+            let mut impl_part = &text[4..for_pos]; // Skip "impl"
+
+            // Skip impl generics like "<T>" or "<T, U>"
+            if impl_part.trim_start().starts_with('<') {
+                if let Some(close_angle) = impl_part.find('>') {
+                    impl_part = &impl_part[close_angle + 1..];
                 }
             }
-            _ => result.push_str(token.text()),
-        }
-    }
 
-    result.trim().to_string()
-}
+            impl_part = impl_part.trim();
 
-/// Check if a trait is from the standard library
-fn is_std_library_trait(trait_name: &str) -> bool {
-    trait_name.starts_with("std::")
-        || trait_name.starts_with("core::")
-        || trait_name.starts_with("alloc::")
-}
+            // Now extract just the trait name (before any trait generics)
+            let trait_name = if let Some(angle_pos) = impl_part.find('<') {
+                impl_part[..angle_pos].trim()
+            } else {
+                impl_part
+            };
 
-/// Render a group of impl blocks as a single condensed line
-pub fn render_impl_group(
-    impl_item: &PublicItem,
-    members: &[PublicItem],
-    is_std_trait: bool,
-    namespace_mgr: &NamespaceManager,
-) -> String {
-    if !is_std_trait || members.len() <= 1 {
-        // Fall back to single rendering
-        return namespace_mgr.shorten_text(&impl_item.to_string());
-    }
+            if !trait_name.is_empty() {
+                traits.push(trait_name.to_string());
+            }
 
-    // Extract trait names from all members
-    let mut trait_names = Vec::new();
-    for member in members {
-        if let Some(impl_info) = parse_impl_block(member) {
-            if let Some(trait_name) = impl_info.trait_name {
-                trait_names.push(trait_name);
+            if for_type.is_none() {
+                let after_for = &text[for_pos + 5..];
+                let type_part = if let Some(where_pos) = after_for.find(" where") {
+                    &after_for[..where_pos]
+                } else {
+                    after_for.trim_end_matches(';')
+                };
+                for_type = Some(type_part.trim().to_string());
             }
         }
     }
 
-    // Extract the "for Type" part from the first impl
-    let first_impl_info = parse_impl_block(impl_item).expect("impl_item should be parseable");
-
-    // Build the condensed impl string
-    let traits = trait_names.join(" + ");
-    let result = format!("impl {} for {}", traits, first_impl_info.for_type);
-
-    // Apply namespace shortening
-    namespace_mgr.shorten_text(&result)
+    if let Some(for_type) = for_type {
+        let result = format!("impl {} for {}", traits.join(" + "), for_type);
+        namespace_mgr.shorten_text(&result)
+    } else {
+        // Fallback to first item
+        namespace_mgr.shorten_text(&members[0].to_string())
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Render an impl block with its methods
+pub fn render_impl_with_methods(
+    impl_item: &PublicItem,
+    methods: &[PublicItem],
+    namespace_mgr: &NamespaceManager,
+) -> String {
+    let impl_line = namespace_mgr.shorten_text(&impl_item.to_string());
 
-    #[test]
-    fn test_is_std_library_trait() {
-        assert!(is_std_library_trait("std::fmt::Debug"));
-        assert!(is_std_library_trait("core::marker::Send"));
-        assert!(is_std_library_trait("alloc::string::ToString"));
-        assert!(!is_std_library_trait("MyTrait"));
-        assert!(!is_std_library_trait("my_crate::MyTrait"));
+    if methods.is_empty() {
+        return impl_line;
     }
+
+    let mut result = impl_line.trim_end_matches(';').to_string();
+    result.push_str(" {\n");
+
+    for method in methods {
+        let method_str = namespace_mgr.shorten_text(&method.to_string());
+        // Methods are already rendered without type prefix thanks to prepare_items_for_grouping
+        result.push_str("    ");
+        result.push_str(&method_str.trim_end_matches(';'));
+        result.push_str(";\n");
+    }
+
+    result.push('}');
+    result
 }

@@ -67,4 +67,13 @@ impl<'c> IntermediatePublicItem<'c> {
     pub fn render_token_stream(&self, context: &RenderingContext) -> Vec<Token> {
         context.token_stream(self)
     }
+
+    /// Create a new IntermediatePublicItem with a modified path
+    pub fn with_modified_path(&self, path: Vec<PathComponent<'c>>) -> Self {
+        Self {
+            path,
+            parent_id: self.parent_id,
+            id: self.id,
+        }
+    }
 }
