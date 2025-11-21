@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use rexplore_core::{
-    build_rustdoc_json, impl_grouper, load_rustdoc_json, public_api_in_crate, BuilderOptions,
-    NamespaceManager,
+    BuilderOptions, NamespaceManager, build_rustdoc_json, impl_grouper, load_rustdoc_json,
+    public_api_in_crate,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Debug, Deserialize)]
@@ -104,7 +104,7 @@ fn handle_initialize(id: Option<Value>) -> JsonRpcResponse {
             "serverInfo": {
                 "name": "rexplore-mcp",
                 "version": env!("CARGO_PKG_VERSION"),
-                "description": "LOCAL ONLY: Rust API explorer using rustdoc JSON. Requires filesystem access and Rust nightly compiler."
+                "description": "LOCAL ONLY: Rust API explorer for project dependencies. Requires filesystem access and Rust nightly compiler."
             }
         })),
         error: None,
@@ -119,7 +119,7 @@ fn handle_tools_list(id: Option<Value>) -> JsonRpcResponse {
             "tools": [
                 {
                     "name": "explore_crate",
-                    "description": "Explore the public API of a Rust crate using rustdoc JSON. Returns formatted listings of public items (modules, types, functions, traits, etc.) with optional filtering and impl grouping.",
+                    "description": "Explore the public API of a Rust crate, the version declared in your project's Cargo.toml. Returns formatted listings of public items (modules, types, functions, traits, etc.) with optional filtering and impl grouping.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -162,7 +162,7 @@ async fn handle_tools_call(id: Option<Value>, params: Option<Value>) -> JsonRpcR
                     code: -32602,
                     message: "Missing params".to_string(),
                 }),
-            }
+            };
         }
     };
 
@@ -177,7 +177,7 @@ async fn handle_tools_call(id: Option<Value>, params: Option<Value>) -> JsonRpcR
                     code: -32602,
                     message: "Missing tool name".to_string(),
                 }),
-            }
+            };
         }
     };
 
@@ -204,7 +204,7 @@ async fn handle_tools_call(id: Option<Value>, params: Option<Value>) -> JsonRpcR
                     code: -32602,
                     message: "Missing arguments".to_string(),
                 }),
-            }
+            };
         }
     };
 
