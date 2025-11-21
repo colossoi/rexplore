@@ -1,0 +1,12 @@
+[package]
+name = "rexplore-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+regex.workspace = true
+rustdoc-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hashbag.workspace = true

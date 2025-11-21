@@ -1,0 +1,14 @@
+[package]
+name = "rexplore"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rexplore"
+path = "src/main.rs"
+
+[dependencies]
+rexplore-core = { path = "../rexplore-core" }
+anyhow.workspace = true
+clap.workspace = true
+regex.workspace = true

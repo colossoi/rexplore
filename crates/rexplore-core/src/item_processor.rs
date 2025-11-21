@@ -2,7 +2,7 @@ use super::nameable_item::NameableItem;
 use crate::{
     crate_wrapper::CrateWrapper, intermediate_public_item::IntermediatePublicItem,
     path_component::PathComponent, public_item::PublicItem, render::RenderingContext,
-    BuilderOptions as Options, PublicApi,
+    BuilderOptions as Options,
 };
 use rustdoc_types::{
     Attribute, Crate, Id, Impl, Item, ItemEnum, Module, Struct, StructKind, Type, Use, VariantKind,
@@ -453,7 +453,7 @@ pub fn impls_for_item(item: &Item) -> Option<&[Id]> {
     }
 }
 
-pub(crate) fn public_api_in_crate(crate_: &Crate, options: Options) -> super::PublicApi {
+pub(crate) fn public_api_in_crate(crate_: &Crate, options: Options) -> super::Api {
     let mut item_processor = ItemProcessor::new(crate_, options);
     item_processor.add_to_work_queue(vec![], None, crate_.root);
     item_processor.run();
@@ -467,7 +467,7 @@ pub(crate) fn public_api_in_crate(crate_: &Crate, options: Options) -> super::Pu
     // Prepare items for grouped rendering by hiding parent types from method paths
     let prepared_items = prepare_items_for_grouping(&item_processor.output, crate_);
 
-    PublicApi {
+    super::Api {
         items: prepared_items
             .iter()
             .map(|item| PublicItem::from_intermediate_public_item(&context, item))

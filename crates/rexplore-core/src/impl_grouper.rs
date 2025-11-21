@@ -64,7 +64,7 @@ pub fn group_impl_items(items: Vec<PublicItem>, crate_data: &Crate) -> Vec<ItemG
 
                                 trait_impls
                                     .entry(grouping_key)
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .push((item, trait_id));
                             } else {
                                 // Don't group generic/blanket impls - output them individually
@@ -83,10 +83,7 @@ pub fn group_impl_items(items: Vec<PublicItem>, crate_data: &Crate) -> Vec<ItemG
                 | ItemEnum::AssocType { .. } => {
                     // These are methods/associated items - group by parent
                     if let Some(parent) = item.parent_id() {
-                        methods_by_parent
-                            .entry(parent)
-                            .or_insert_with(Vec::new)
-                            .push(item);
+                        methods_by_parent.entry(parent).or_default().push(item);
                     } else {
                         other_items.push(ItemGroup::Single(item));
                     }
@@ -224,7 +221,7 @@ pub fn render_impl_with_methods(
         let method_str = namespace_mgr.shorten_text(&method.to_string());
         // Methods are already rendered without type prefix thanks to prepare_items_for_grouping
         result.push_str("    ");
-        result.push_str(&method_str.trim_end_matches(';'));
+        result.push_str(method_str.trim_end_matches(';'));
         result.push_str(";\n");
     }
 

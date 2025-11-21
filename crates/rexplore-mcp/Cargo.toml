@@ -1,0 +1,14 @@
+[package]
+name = "rexplore-mcp"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rexplore-mcp"
+path = "src/main.rs"
+
+[dependencies]
+rexplore-core = { path = "../rexplore-core" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true

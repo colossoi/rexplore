@@ -21,6 +21,12 @@ pub struct NamespaceManager {
     namespace_to_items: BTreeMap<String, BTreeSet<String>>,
 }
 
+impl Default for NamespaceManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NamespaceManager {
     pub fn new() -> Self {
         Self {
@@ -89,7 +95,7 @@ impl NamespaceManager {
                     // Record this path
                     self.name_to_paths
                         .entry(name.to_string())
-                        .or_insert_with(HashSet::new)
+                        .or_default()
                         .insert(full_path.to_string());
 
                     // Only add to namespace_to_items if depth > 0 (multi-level namespace)
@@ -98,7 +104,7 @@ impl NamespaceManager {
                     if depth > 0 {
                         self.namespace_to_items
                             .entry(namespace.to_string())
-                            .or_insert_with(BTreeSet::new)
+                            .or_default()
                             .insert(name.to_string());
                     }
                 }
@@ -129,7 +135,7 @@ impl NamespaceManager {
             if let Some((namespace, _)) = extract_namespace_and_name(full_path) {
                 prefix_groups
                     .entry(namespace.to_string())
-                    .or_insert_with(BTreeSet::new)
+                    .or_default()
                     .insert(short_name.clone());
             }
         }

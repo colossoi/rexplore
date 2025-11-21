@@ -202,12 +202,30 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "regex",
+ "rexplore-core",
+]
+
+[[package]]
+name = "rexplore-core"
+version = "0.1.0"
+dependencies = [
  "hashbag",
  "regex",
  "rustdoc-types",
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "rexplore-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rexplore-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,29 +1,17 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use regex::Regex;
+use rexplore_core::{
+    build_rustdoc_json, impl_grouper, load_rustdoc_json, public_api_in_crate, BuilderOptions,
+    NamespaceManager, PublicItem,
+};
 use std::path::PathBuf;
-use std::process::Command;
-
-mod crate_wrapper;
-mod error;
-mod impl_grouper;
-mod intermediate_public_item;
-mod item_processor;
-mod nameable_item;
-mod namespace_manager;
-mod path_component;
-mod public_item;
-mod render;
-mod tokens;
-
-use namespace_manager::NamespaceManager;
-use public_item::PublicItem;
 
 const LONG_ABOUT: &str = r#"Given a package name to explore, rexplore will look in the dependencies
 (and sub-dependencies) of the current project to find a matching crate name.
 It will then print out the complete public API as exposed by that crate,
 subject to filtering with the --regex and --keyword arguments.  The API
-will represent the exact crate version as used by your project.    
+will represent the exact crate version as used by your project.
 "#;
 
 #[derive(Parser, Debug)]
@@ -46,45 +34,20 @@ struct Args {
     regex: Option<String>,
 }
 
-/// Builder options (simplified - no filtering for now)
-#[derive(Copy, Clone, Debug)]
-#[allow(dead_code)]
-struct BuilderOptions {
-    sorted: bool,
-    debug_sorting: bool,
-    omit_blanket_impls: bool,
-    omit_auto_trait_impls: bool,
-    omit_auto_derived_impls: bool,
-}
-
-impl Default for BuilderOptions {
-    fn default() -> Self {
-        Self {
-            sorted: true,
-            debug_sorting: false,
-            omit_blanket_impls: false,
-            omit_auto_trait_impls: false,
-            omit_auto_derived_impls: false,
-        }
-    }
-}
-
 fn main() -> Result<()> {
     let args = Args::parse();
 
     // Step 1: Build rustdoc JSON
-    let json_path = build_rustdoc_json(&args)?;
+    let json_path = build_rustdoc_json(&args.manifest_path, args.package.as_deref())
+        .context("Failed to build rustdoc JSON")?;
 
-    // Step 2: Parse the JSON
-    let json_content =
-        std::fs::read_to_string(&json_path).context("Failed to read rustdoc JSON file")?;
-
-    let crate_data: rustdoc_types::Crate =
-        serde_json::from_str(&json_content).context("Failed to parse rustdoc JSON")?;
+    // Step 2: Load and parse the JSON
+    let crate_data = load_rustdoc_json(&json_path).context("Failed to load rustdoc JSON")?;
 
     // Step 3: Extract public items using the item processor
     let options = BuilderOptions::default();
-    let public_items = public_api_from_crate(&crate_data, options)?;
+    let public_api = public_api_in_crate(&crate_data, options);
+    let public_items = public_api.items;
 
     // Step 4: Filter items BEFORE namespace removal
     let item_strings: Vec<String> = public_items.iter().map(|item| item.to_string()).collect();
@@ -120,7 +83,7 @@ fn main() -> Result<()> {
                 let shortened = namespace_mgr.shorten_text(&item.to_string());
                 println!("{};", shortened);
             }
-            impl_grouper::ItemGroup::TraitImplGroup { members, .. } => {
+            impl_grouper::ItemGroup::TraitImplGroup { members } => {
                 let rendered = impl_grouper::render_trait_impl_group(&members, &namespace_mgr);
                 println!("{};", rendered);
             }
@@ -153,79 +116,4 @@ fn filter_items(items: &[String], args: &Args) -> Result<Vec<String>> {
         // No filtering - return all items
         Ok(items.to_vec())
     }
-}
-
-fn public_api_from_crate(
-    crate_: &rustdoc_types::Crate,
-    options: BuilderOptions,
-) -> Result<Vec<PublicItem>> {
-    let public_api = item_processor::public_api_in_crate(crate_, options);
-    Ok(public_api.items)
-}
-
-/// The public API of a crate
-pub struct PublicApi {
-    /// The items that constitute the public API
-    pub items: Vec<PublicItem>,
-
-    /// Missing item IDs
-    pub missing_item_ids: Vec<u32>,
-}
-
-fn build_rustdoc_json(args: &Args) -> Result<PathBuf> {
-    let mut cmd = Command::new("rustup");
-    cmd.args(["run", "nightly", "cargo", "rustdoc", "--lib"]);
-    cmd.arg("--manifest-path");
-    cmd.arg(&args.manifest_path);
-
-    if let Some(package) = &args.package {
-        cmd.args(["--package", package]);
-    }
-
-    cmd.args(["--", "-Z", "unstable-options", "--output-format", "json"]);
-
-    let status = cmd.status().context("Failed to execute cargo rustdoc")?;
-
-    if !status.success() {
-        anyhow::bail!("cargo rustdoc failed");
-    }
-
-    // Determine the output path
-    let package_name = if let Some(package) = &args.package {
-        package.clone()
-    } else {
-        get_package_name(&args.manifest_path)?
-    };
-
-    let json_path = PathBuf::from("target/doc")
-        .join(package_name.replace('-', "_"))
-        .with_extension("json");
-
-    if !json_path.exists() {
-        anyhow::bail!(
-            "Expected rustdoc JSON at {:?} but it doesn't exist",
-            json_path
-        );
-    }
-
-    Ok(json_path)
-}
-
-fn get_package_name(manifest_path: &PathBuf) -> Result<String> {
-    let manifest_content =
-        std::fs::read_to_string(manifest_path).context("Failed to read Cargo.toml")?;
-
-    // Simple TOML parsing to extract package name
-    for line in manifest_content.lines() {
-        let line = line.trim();
-        if line.starts_with("name") && line.contains('=') {
-            let parts: Vec<&str> = line.split('=').collect();
-            if parts.len() == 2 {
-                let name = parts[1].trim().trim_matches('"').trim_matches('\'');
-                return Ok(name.to_string());
-            }
-        }
-    }
-
-    anyhow::bail!("Could not find package name in Cargo.toml")
 }
