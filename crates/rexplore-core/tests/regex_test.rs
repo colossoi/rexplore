@@ -1,4 +1,7 @@
-use rexplore_core::{load_rustdoc_json_from_str, public_api_in_crate, BuilderOptions};
+use rexplore_core::{
+    impl_grouper::{group_impl_items, ItemGroup},
+    load_rustdoc_json_from_str, public_api_in_crate, BuilderOptions,
+};
 
 const REGEX_RUSTDOC_JSON: &str = include_str!("fixtures/regex.json");
 
@@ -91,5 +94,28 @@ fn test_regex_enum_and_variants() {
             .iter()
             .any(|s| s.contains("Error::CompiledTooBig")),
         "Should have Error::CompiledTooBig variant"
+    );
+}
+
+#[test]
+fn grouping_preserves_free_functions() {
+    let crate_data =
+        load_rustdoc_json_from_str(REGEX_RUSTDOC_JSON).expect("Failed to parse regex rustdoc JSON");
+    let api = public_api_in_crate(&crate_data, BuilderOptions::default());
+
+    assert!(
+        api.items
+            .iter()
+            .any(|item| item.to_string().contains("pub fn regex::escape")),
+        "fixture should contain regex::escape"
+    );
+
+    let grouped = group_impl_items(api.items, &crate_data);
+    assert!(
+        grouped.iter().any(|group| matches!(
+            group,
+            ItemGroup::Single(item) if item.to_string().contains("pub fn regex::escape")
+        )),
+        "grouping must not drop free functions whose parent is a module"
     );
 }

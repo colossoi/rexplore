@@ -81,8 +81,18 @@ pub fn group_impl_items(items: Vec<PublicItem>, crate_data: &Crate) -> Vec<ItemG
                 ItemEnum::Function(_)
                 | ItemEnum::AssocConst { .. }
                 | ItemEnum::AssocType { .. } => {
-                    // These are methods/associated items - group by parent
-                    if let Some(parent) = item.parent_id() {
+                    // Only items whose parent is an impl belong in an impl
+                    // group. Free functions also have a parent (their module),
+                    // and trait members have their trait as a parent; treating
+                    // either as an impl member silently drops them below.
+                    let impl_parent = item.parent_id().filter(|parent| {
+                        crate_data
+                            .index
+                            .get(parent)
+                            .is_some_and(|item| matches!(item.inner, ItemEnum::Impl(_)))
+                    });
+
+                    if let Some(parent) = impl_parent {
                         methods_by_parent.entry(parent).or_default().push(item);
                     } else {
                         other_items.push(ItemGroup::Single(item));
@@ -123,6 +133,15 @@ pub fn group_impl_items(items: Vec<PublicItem>, crate_data: &Crate) -> Vec<ItemG
         }
         result.push(ItemGroup::Single(impl_item));
     }
+
+    // Be lossless even if rustdoc contains an associated item whose impl was
+    // filtered out independently from the item itself.
+    result.extend(
+        methods_by_parent
+            .into_values()
+            .flatten()
+            .map(ItemGroup::Single),
+    );
 
     // Add remaining items
     result.extend(other_items);
