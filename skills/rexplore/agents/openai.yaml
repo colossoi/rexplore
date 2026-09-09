@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rexplore"
+  short_description: "Inspect exact Rust crate public APIs"
+  default_prompt: "Use $rexplore to inspect the public API of a Rust crate in this project."
